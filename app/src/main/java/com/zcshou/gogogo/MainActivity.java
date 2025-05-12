@@ -1,5 +1,7 @@
 package com.zcshou.gogogo;
 
+import static android.content.ContentValues.TAG;
+
 import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.BroadcastReceiver;
@@ -20,13 +22,17 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.provider.Settings;
 import android.text.Editable;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.text.method.LinkMovementMethod;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -92,7 +98,9 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -142,6 +150,7 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
     private static BaiduMap mBaiduMap = null;
     private static LatLng mMarkLatLngMap = new LatLng(36.547743718042415, 117.07018449827267); // 当前标记的地图点
     private GeoCoder mGeoCoder;
+    private Handler mHandler;
     private SensorManager mSensorManager;
     private Sensor mSensorAccelerometer;
     private Sensor mSensorMagnetic;
@@ -177,11 +186,12 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
     private long mDownloadId;
     private BroadcastReceiver mDownloadBdRcv;
     private String mUpdateFilename;
-
+    public static MainActivity instance;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        instance = this;
 
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
@@ -242,6 +252,64 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
         mLocClient.start();
     }
 
+    public static void updateMapLocation(LatLng latLng) {
+        if (mBaiduMap == null) return;
+        mBaiduMap.clear();
+        MarkerOptions opts = new MarkerOptions()
+                .position(latLng)
+                .icon(BitmapDescriptorFactory.fromResource(R.drawable.icon_gcoding));
+        mBaiduMap.addOverlay(opts);
+        mBaiduMap.setMapStatus(MapStatusUpdateFactory.newLatLng(latLng));
+        mMarkLatLngMap = new LatLng(latLng.latitude, latLng.longitude);
+        MapStatusUpdate mapstatusupdate = MapStatusUpdateFactory.newLatLng(mMarkLatLngMap);
+        mBaiduMap.setMapStatus(mapstatusupdate);
+        instance.goToLocation(mMarkLatLngMap);
+    }
+
+    public void goToLocation(LatLng target) {
+        if (!GoUtils.isNetworkAvailable(this)) {
+            GoUtils.DisplayToast(this, getResources().getString(R.string.app_error_network));
+            return;
+        }
+        if (!GoUtils.isGpsOpened(this)) {
+            GoUtils.showEnableGpsDialog(this);
+            return;
+        }
+
+        if (isMockServStart) {
+            if (mMarkLatLngMap == null) {
+                stopGoLocation();
+                Snackbar.make(mMapView, "模拟位置已终止", Snackbar.LENGTH_LONG).show();
+                mButtonStart.setImageResource(R.drawable.ic_position);
+            }
+            else {
+                double[] latLng = MapUtils.bd2wgs(mMarkLatLngMap.longitude, mMarkLatLngMap.latitude);
+                double alt = Double.parseDouble(sharedPreferences.getString("setting_altitude", "55.0"));
+                mServiceBinder.setPosition(latLng[0], latLng[1], alt);
+                recordCurrentLocation(mMarkLatLngMap.longitude, mMarkLatLngMap.latitude);
+                mBaiduMap.clear();
+                mMarkLatLngMap = null;
+                GoUtils.showLocationNotice(this, mMapView, true);
+            }
+        } else {
+            if (!GoUtils.isAllowMockLocation(this)) {
+                GoUtils.showEnableMockLocationDialog(this);
+                XLog.e("无模拟位置权限!");
+            } else {
+                if (mMarkLatLngMap == null) {
+                    Snackbar.make(mMapView, "请先点击地图位置或者搜索位置", Snackbar.LENGTH_LONG).show();
+                } else {
+                    startGoLocation();
+                    mButtonStart.setImageResource(R.drawable.ic_fly);
+                    recordCurrentLocation(mMarkLatLngMap.longitude, mMarkLatLngMap.latitude);
+                    mBaiduMap.clear();
+                    mMarkLatLngMap = null;
+                    GoUtils.showLocationNotice(this, mMapView, false);
+                }
+            }
+        }
+    }
+
     @Override
     protected void onPause() {
         XLog.i("MainActivity: onPause");
@@ -292,6 +360,7 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
         //close db
         mLocationHistoryDB.close();
         mSearchHistoryDB.close();
+        instance = null;
 
         super.onDestroy();
     }

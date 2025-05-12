@@ -113,7 +113,13 @@
             android:name=".HistoryActivity"
             android:label="@string/app_history"
             android:exported="false" />
-
+        <receiver android:name="com.zcshou.api.SetLocationReceiver"
+            android:exported="true"
+            tools:ignore="ExportedReceiver">
+            <intent-filter>
+                <action android:name="com.example.app.SET_LOCATION"/>
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

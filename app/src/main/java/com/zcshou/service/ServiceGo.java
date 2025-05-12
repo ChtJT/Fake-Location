@@ -78,11 +78,13 @@ public class ServiceGo extends Service {
         removeTestProviderGPS();
         addTestProviderGPS();
 
-        initGoLocation();
+
 
         initNotification();
 
         initJoyStick();
+
+        initGoLocation();
     }
 
     @Override
